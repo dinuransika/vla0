@@ -13,8 +13,25 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 
+from transformers import GenerationConfig
+
+_orig_from_model_config = GenerationConfig.from_model_config
+
+def _safe_from_model_config(model_config):
+    try:
+        return _orig_from_model_config(model_config)
+    except AttributeError as e:
+        if "'dict' object has no attribute 'to_dict'" in str(e):
+            print("[patch] from_model_config dict workaround, returning default GenerationConfig")
+            return GenerationConfig()
+        raise
+
+GenerationConfig.from_model_config = _safe_from_model_config
+
 from rv_train.deploy.data_models import So100Base64DataModel
 from rv_train.deploy.model_manager import So100ModelManager
+
+
 
 rbv_mm = None
 
@@ -86,6 +103,54 @@ def get_ip_address():
 
 if __name__ == "__main__":
     rbv_mm = So100ModelManager()
+    import torch.nn as nn
+
+    RS = {"type": "default", "rope_type": "default", "mrope_section": [16, 24, 24]}
+
+    # Patch all configs that have a rope_scaling attribute
+    def patch_configs(obj, seen=None):
+        if seen is None: seen = set()
+        if id(obj) in seen: return
+        seen.add(id(obj))
+        if hasattr(obj, "rope_scaling"):
+            obj.rope_scaling = RS
+        for name in ("text_config", "vision_config", "config"):
+            sub = getattr(obj, name, None)
+            if sub is not None:
+                patch_configs(sub, seen)
+
+    patch_configs(rbv_mm.model.model.config)
+
+    # Patch every attention module's rope_scaling attribute
+    n_patched = 0
+    for module in rbv_mm.model.model.modules():
+        if hasattr(module, "rope_scaling"):
+            module.rope_scaling = RS
+            n_patched += 1
+    print(f"patched rope_scaling on {n_patched} modules")
+    import torch
+    from safetensors.torch import load_file
+
+    sd_path = "/Users/dinura.dissanayake/Desktop/vla0/checkpoint-4000/model.safetensors"
+    sd = load_file(sd_path)
+    print("lm_head.weight in safetensors:", "lm_head.weight" in sd)
+    print("keys matching lm_head/embed:", [k for k in sd.keys() if "lm_head" in k or "embed_tokens" in k])
+
+    cfg = rbv_mm.model.model.config
+    print("tie_word_embeddings:", getattr(cfg, "tie_word_embeddings", None))
+    if hasattr(cfg, "text_config"):
+        print("text_config.tie_word_embeddings:", getattr(cfg.text_config, "tie_word_embeddings", None))
+
+    emb = rbv_mm.model.model.get_input_embeddings().weight
+    head = rbv_mm.model.model.get_output_embeddings().weight
+    print("embed shape:", emb.shape, "lm_head shape:", head.shape)
+    print("tied (same memory):", emb.data_ptr() == head.data_ptr())
+    print("equal values:", torch.allclose(emb[:10], head[:10]))
+    rbv_mm.model.model.tie_weights()
+    # verify
+    emb = rbv_mm.model.model.get_input_embeddings().weight
+    head = rbv_mm.model.model.get_output_embeddings().weight
+    print("tied after fix:", emb.data_ptr() == head.data_ptr())
     PORT = 10000
     print()
     print(f"IP address: {get_ip_address()}")
