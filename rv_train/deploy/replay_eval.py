@@ -28,7 +28,7 @@ import requests
 
 # ----------------------------- config (match training) -----------------------------
 SERVER_URL  = "http://localhost:10000"
-TASK        = "Pick up the Lego block and place it in the container"
+TASK        = "Pick up the square Lego block and place it in the container"
 
 # Camera observation keys, in the ORDER the server expects (base64_rgb[0], base64_rgb[1]).
 # Must match training: front -> 3p1, wrist -> 3p2. Check meta/info.json if unsure.
@@ -93,9 +93,9 @@ def load_episode(repo_id, episode, root=None):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--repo-id", default="dinura/so101_pickup_lego_v2")
-    ap.add_argument("--episode", type=int, default=98)
-    ap.add_argument("--root", default="/Users/dinura.dissanayake/lerobot_data/so101_pickup_lego_v2", help="local dataset root if not in HF cache")
+    ap.add_argument("--repo-id", default="dinura/so101_pickup_lego_square")
+    ap.add_argument("--episode", type=int, default=2)
+    ap.add_argument("--root", default="/Users/dinura.dissanayake/lerobot_data/so101_pickup_lego_square", help="local dataset root if not in HF cache")
     ap.add_argument("--max-frames", type=int, default=None, help="cap frames for a quick test")
     ap.add_argument("--stride", type=int, default=1, help="evaluate every Nth frame")
     args = ap.parse_args()
